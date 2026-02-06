@@ -1,0 +1,136 @@
+from typing import Dict, List
+from datetime import datetime
+import os
+import json
+
+class MemorySystem:
+    """نظام الذاكرة المتكامل"""
+
+    def __init__(self):
+        self.static_memory = self._load_static_memory()
+        self.short_memory = ShortMemory()
+        self.long_memory = LongMemory()
+        self.command_memory = CommandMemory()
+
+    def _load_static_memory(self) -> str:
+        return """أنت ZIC، المساعد الذكي الشخصي لأحمد.
+
+الصفات الأساسية:
+- تتكلم بالعربية المصرية الفصحى (واضحة ومفهومة)
+- ذكي، فضولي، ومتعلم دائماً
+- صريح: لو مش متأكد من معلومة، تقول "مش متأكد" بدل ما تخترع
+- تفكر قبل ما ترد
+- تسأل أسئلة توضيحية لو السؤال مش واضح
+- صنعك أحمد - أنت طريف وردودك دائماً لازم تبقى صح ومتأكد منها
+- محب وفضولي - أي سؤال مش عارفه بتسأل فيه
+
+المهمة: مساعدة أحمد في أي شيء يحتاجه بذكاء واحترافية."""
+
+class ShortMemory:
+    """الذاكرة القصيرة المدى"""
+
+    def __init__(self, limit=10):
+        self.buffer = []
+        self.limit = limit
+
+    def add(self, role: str, content: str):
+        """إضافة محادثة جديدة"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        self.buffer.append({
+            "role": role,
+            "content": content,
+            "time": timestamp
+        })
+        if len(self.buffer) > self.limit:
+            self.buffer.pop(0)
+
+    def get_formatted(self) -> str:
+        """الحصول على الذاكرة بشكل منظم"""
+        if not self.buffer:
+            return "لا توجد محادثات سابقة مؤخراً."
+
+        formatted = "المحادثات الأخيرة:\n"
+        for item in self.buffer[-5:]:  # آخر 5 محادثات فقط
+            formatted += f"[{item['time']}] {item['role']}: {item['content']}\n"
+        return formatted
+
+    def clear(self):
+        """مسح الذاكرة القصيرة"""
+        self.buffer = []
+
+class LongMemory:
+    """الذاكرة الطويلة المدى"""
+
+    def __init__(self, path="long_memory.json"):
+        self.path = path
+        self.data = self._load()
+
+    def _load(self) -> Dict:
+        if os.path.exists(self.path):
+            with open(self.path, "r", encoding="utf-8") as f:
+                return json.load(f)
+        return {
+            "facts": [],
+            "preferences": {},
+            "conversations": [],
+            "learned_topics": []
+        }
+
+    def _save(self):
+        with open(self.path, "w", encoding="utf-8") as f:
+            json.dump(self.data, f, ensure_ascii=False, indent=2)
+
+    def remember_fact(self, fact: str, category: str = "general"):
+        """تذكر معلومة جديدة"""
+        self.data["facts"].append({
+            "fact": fact,
+            "category": category,
+            "timestamp": datetime.now().isoformat()
+        })
+        self._save()
+
+    def get_facts(self, category: str = None) -> List[str]:
+        """الحصول على الحقائق"""
+        if category:
+            return [f["fact"] for f in self.data["facts"] if f["category"] == category]
+        return [f["fact"] for f in self.data["facts"]]
+
+    def get_formatted(self) -> str:
+        """الحصول على الذاكرة الطويلة بشكل منظم"""
+        if not self.data["facts"]:
+            return "لا توجد معلومات مخزنة في الذاكرة الطويلة."
+
+        formatted = "المعلومات المخزنة في الذاكرة الطويلة:\n"
+        for i, fact in enumerate(self.data["facts"][-5:], 1):  # آخر 5 معلومات
+            formatted += f"{i}. {fact['fact']} [{fact['category']}]\n"
+        return formatted
+
+class CommandMemory:
+    """ذاكرة الأوامر"""
+
+    def __init__(self):
+        self.commands_history = []
+        self.learned_commands = {
+            "افتح التطبيق": "فتح تطبيق معين",
+            "اقفل الجهاز": "إغلاق النظام",
+            "ابحث عن": "البحث عن معلومات",
+            "حفظ معلومة": "حفظ معلومة في الذاكرة الطويلة",
+            "استخدم الموديل": "تغيير الموديل المستخدم",
+            "تفعيل الصوت": "تشغيل الصوت",
+            "تعطيل الصوت": "إيقاف الصوت",
+            "اعرض الذاكرة": "عرض الذاكرة",
+            "امسح الذاكرة": "مسح الذاكرة القصيرة",
+            "سجل اليوم": "عرض سجل اليوم"
+        }
+
+    def add_command(self, command: str, success: bool = True):
+        """تسجيل أمر جديد"""
+        self.commands_history.append({
+            "command": command,
+            "time": datetime.now().isoformat(),
+            "success": success
+        })
+
+    def get_recent_commands(self, count: int = 5) -> List[str]:
+        """الحصول على الأوامر الأخيرة"""
+        return [cmd["command"] for cmd in self.commands_history[-count:]]
