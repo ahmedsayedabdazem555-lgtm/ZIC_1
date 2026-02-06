@@ -1,0 +1,60 @@
+memory_system = MemorySystem()
+
+
+offline_llm_model_instance = ZICBrain() # This is the offline LLM handler (llama3 model)
+online_llm_model_instance = ZIC_Online(api_key=MY_KEY) # This is the online LLM handler (Gemini)
+
+
+class LLMAdapter:
+    def __init__(self, online_instance, offline_instance):
+        self.online_instance = online_instance
+        self.offline_instance = offline_instance
+
+    def ask(self, user_question: str, context_dict: dict, mode: str = "online") -> str:
+        print(f"DEBUG: LLMAdapter.ask called with mode='{mode}' (type: {type(mode)}) - user_question: {user_question[:30]}...") # Debug print
+        if mode == "online":
+            print("DEBUG: Entering online branch.") # Debug print
+            return self.online_instance.generate_response(prompt=user_question, context=context_dict)
+        elif mode == "offline":
+            print("DEBUG: Entering offline branch.") # Debug print
+            return self.offline_instance.ask_zic(user_question)
+        else:
+            print(f"DEBUG: Entering else branch (mode not recognized): '{mode}'.") # Debug print
+            return "⚠️ اختيار الموديل غير صحيح في LLMAdapter!"
+
+
+
+main_brain_orchestrator = ZICBRAIN(memory_system)
+
+adapted_llm_dispatcher = LLMAdapter(online_llm_model_instance, offline_llm_model_instance)
+
+print("👋 مرحبًا بك في نظام ZIC المتكامل!")
+print("يمكنك التبديل بين وضع 'online' و 'offline'.")
+print("اكتب 'خروج' للخروج من المحادثة.")
+
+while True:
+    user_question = input("أنت: ").strip()
+
+    if user_question.lower() in ["خروج", "exit", "باي"]:
+        print("👋 تم الخروج. مع السلامة!")
+        break
+
+    if not user_question: # Handle empty input
+        continue
+
+    current_mode_input = input("تحب تسأل الموديل (online/offline)؟ ").strip().lower()
+
+    actual_mode_for_adapter = ""
+    if current_mode_input in ["online", "اونلاين", "on"]:
+        actual_mode_for_adapter = "online"
+    elif current_mode_input in ["offline", "اوفلاين", "off"]:
+        actual_mode_for_adapter = "offline"
+    else:
+        print("⚠️ اختيار موديل غير صالح. يرجى الاختيار بين 'online' أو 'offline'.")
+        continue
+
+    print(f"🌐 جاري سؤال الموديل ({actual_mode_for_adapter})...")
+
+    reply = main_brain_orchestrator.handle(user_question, adapted_llm_dispatcher, actual_mode_for_adapter)
+
+    speak(f"ZIC: {reply}")
