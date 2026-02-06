@@ -134,3 +134,49 @@ class CommandMemory:
     def get_recent_commands(self, count: int = 5) -> List[str]:
         """الحصول على الأوامر الأخيرة"""
         return [cmd["command"] for cmd in self.commands_history[-count:]]
+
+
+
+
+
+
+#========================================= Review a last chat ================================
+class ZICBRAIN:
+    def __init__(self, memory_system_instance):
+        self.memory_system = memory_system_instance
+
+    def handle(self, user_input, model_adapter, mode="online"):
+        # Prepare context dictionary for LLMAdapter
+        context_for_llm = {
+            'static_memory': self.memory_system.static_memory,
+            'short_memory': self.memory_system.short_memory.get_formatted(),
+            'long_memory': self.memory_system.long_memory.get_formatted(),
+            'thinking_report': 'No thinking report available yet.' # Placeholder for now
+        }
+
+        # 2️⃣ Ask the model via the adapter
+        reply = model_adapter.ask(
+            user_question=user_input,
+            context_dict=context_for_llm,
+            mode=mode
+        )
+
+        # 3️⃣ Decision to save (only in Offline) - using long_memory.remember_fact
+        if mode == "offline":
+            # Example: if user says "اسمى احمد", try to extract name
+            if "اسمى" in user_input.lower():
+                parts = user_input.lower().split()
+                try:
+                    name_index = parts.index("اسمى") + 1
+                    if name_index < len(parts):
+                        name = parts[name_index]
+                        self.memory_system.long_memory.remember_fact(f"اسم المستخدم هو {name}", category="user_info")
+                except ValueError:
+                    pass # 'اسمى' not found or not followed by a name
+
+        # 4️⃣ Update short-term memory (shared)
+        self.memory_system.short_memory.add("user", user_input)
+        self.memory_system.short_memory.add("assistant", reply)
+
+        return reply
+
