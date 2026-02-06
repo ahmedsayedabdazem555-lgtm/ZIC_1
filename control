@@ -1,0 +1,252 @@
+import speech_recognition as sr
+import pyttsx3
+import pyautogui
+import webbrowser
+import os
+import time
+import pyperclip
+import subprocess
+
+class VoiceAssistant:
+    def __init__(self):
+        # تهيئة محرك النطق
+        self.engine = pyttsx3.init()
+        self.engine.setProperty('rate', 150)  # سرعة الكلام
+        self.engine.setProperty('volume', 0.9)  # مستوى الصوت
+        
+        # تهيئة متعرف الكلام
+        self.recognizer = sr.Recognizer()
+        
+        # قائمة الأوامر المتاحة
+        self.commands = {
+            "افتح المتصفح": self.open_browser,
+            "اكتب رسالة": self.write_message,
+            "ابحث عن": self.search_web,
+            "افتح يوتيوب": self.open_youtube,
+            "افتح الفيسبوك": self.open_facebook,
+            "افتح الوورد": self.open_word,
+            "افتح الإكسل": self.open_excel,
+            "التقط صورة": self.take_screenshot,
+            "افتح قائمة ابدأ": self.open_start_menu,
+            "اغلق النافذة": self.close_window,
+            "تكبير النافذة": self.maximize_window,
+            "تصغير النافذة": self.minimize_window,
+            "افتح مدير المهام": self.open_task_manager,
+            "اكتب": self.type_text,
+            "انسخ": self.copy_text,
+            "الصق": self.paste_text,
+            "حفظ": self.save_file,
+            "طباعة": self.print_document,
+            "توقف": self.exit_program
+        }
+        
+        self.running = True
+        
+    def speak(self, text):
+        """تحويل النص إلى كلام"""
+        print(f"المساعد: {text}")
+        self.engine.say(text)
+        self.engine.runAndWait()
+    
+    def listen(self):
+        """الاستماع للأوامر الصوتية"""
+        with sr.Microphone() as source:
+            print("جاري الاستماع... قل أمرك الآن")
+            self.recognizer.adjust_for_ambient_noise(source, duration=0.5)
+            audio = self.recognizer.listen(source)
+            
+            try:
+                command = self.recognizer.recognize_google(audio, language="ar-AR")
+                print(f"أنت قلت: {command}")
+                return command.lower()
+            except sr.UnknownValueError:
+                self.speak("عفواً، لم أستطع فهم ما قلته")
+                return ""
+            except sr.RequestError:
+                self.speak("حدث خطأ في خدمة التعرف على الصوت")
+                return ""
+    
+    def open_browser(self):
+        """فتح المتصفح"""
+        self.speak("جاري فتح المتصفح")
+        webbrowser.open("https://www.google.com")
+        time.sleep(2)
+        pyautogui.hotkey('ctrl', 'l')  # الانتقال لشريط العنوان
+    
+    def write_message(self):
+        """فتح برنامج للكتابة"""
+        self.speak("ماذا تريد أن أكتب؟")
+        text_to_write = self.listen()
+        
+        # فتح المفكرة
+        os.system("notepad.exe")
+        time.sleep(2)
+        
+        if text_to_write:
+            # الكتابة في المفكرة
+            pyperclip.copy(text_to_write)
+            pyautogui.hotkey('ctrl', 'v')
+            self.speak("تمت الكتابة بنجاح")
+    
+    def search_web(self, query):
+        """البحث على الإنترنت"""
+        if query:
+            self.speak(f"جاري البحث عن {query}")
+            search_url = f"https://www.google.com/search?q={query}"
+            webbrowser.open(search_url)
+    
+    def open_youtube(self):
+        """فتح يوتيوب"""
+        self.speak("جاري فتح يوتيوب")
+        webbrowser.open("https://www.youtube.com")
+    
+    def open_facebook(self):
+        """فتح فيسبوك"""
+        self.speak("جاري فتح فيسبوك")
+        webbrowser.open("https://www.facebook.com")
+    
+    def open_word(self):
+        """فتح برنامج الوورد"""
+        self.speak("جاري فتح مايكروسوفت وورد")
+        try:
+            os.startfile("winword.exe")
+        except:
+            subprocess.run(["start", "winword"], shell=True)
+    
+    def open_excel(self):
+        """فتح برنامج الإكسل"""
+        self.speak("جاري فتح مايكروسوفت إكسل")
+        try:
+            os.startfile("excel.exe")
+        except:
+            subprocess.run(["start", "excel"], shell=True)
+    
+    def take_screenshot(self):
+        """التقاط صورة للشاشة"""
+        self.speak("جاري التقاط صورة للشاشة")
+        screenshot = pyautogui.screenshot()
+        filename = f"screenshot_{time.strftime('%Y%m%d_%H%M%S')}.png"
+        screenshot.save(filename)
+        self.speak(f"تم حفظ الصورة باسم {filename}")
+    
+    def open_start_menu(self):
+        """فتح قائمة ابدأ"""
+        self.speak("جاري فتح قائمة ابدأ")
+        pyautogui.press('win')
+    
+    def close_window(self):
+        """إغلاق النافذة الحالية"""
+        self.speak("جاري إغلاق النافذة")
+        pyautogui.hotkey('alt', 'f4')
+    
+    def maximize_window(self):
+        """تكبير النافذة الحالية"""
+        self.speak("جاري تكبير النافذة")
+        pyautogui.hotkey('win', 'up')
+    
+    def minimize_window(self):
+        """تصغير النافذة الحالية"""
+        self.speak("جاري تصغير النافذة")
+        pyautogui.hotkey('win', 'down')
+    
+    def open_task_manager(self):
+        """فتح مدير المهام"""
+        self.speak("جاري فتح مدير المهام")
+        pyautogui.hotkey('ctrl', 'shift', 'esc')
+    
+    def type_text(self, text):
+        """كتابة نص"""
+        if text:
+            self.speak(f"جاري كتابة: {text}")
+            pyperclip.copy(text)
+            pyautogui.hotkey('ctrl', 'v')
+    
+    def copy_text(self):
+        """نسخ النص المحدد"""
+        self.speak("جاري نسخ النص")
+        pyautogui.hotkey('ctrl', 'c')
+    
+    def paste_text(self):
+        """لصق النص"""
+        self.speak("جاري لصق النص")
+        pyautogui.hotkey('ctrl', 'v')
+    
+    def save_file(self):
+        """حفظ الملف"""
+        self.speak("جاري حفظ الملف")
+        pyautogui.hotkey('ctrl', 's')
+    
+    def print_document(self):
+        """طباعة المستند"""
+        self.speak("جاري فتح نافذة الطباعة")
+        pyautogui.hotkey('ctrl', 'p')
+    
+    def exit_program(self):
+        """إيقاف البرنامج"""
+        self.speak("إيقاف البرنامج، مع السلامة")
+        self.running = False
+
+        # أضف هذه الدوال في class VoiceAssistant
+    def open_calculator(self):
+        """فتح الآلة الحاسبة"""
+        self.speak("جاري فتح الآلة الحاسبة")
+        os.system("calc.exe")
+
+    def lock_computer(self):
+        """قفل الكمبيوتر"""
+        self.speak("جاري قفل الكمبيوتر")
+        os.system("rundll32.exe user32.dll,LockWorkStation")
+
+    def mute_sound(self):
+        """كتم الصوت"""
+        self.speak("جاري كتم الصوت")
+        pyautogui.press('volumemute')
+
+    def volume_up(self):
+        """رفع الصوت"""
+        self.speak("جاري رفع مستوى الصوت")
+        pyautogui.press('volumeup')
+
+    def volume_down(self):
+        """خفض الصوت"""
+        self.speak("جاري خفض مستوى الصوت")
+        pyautogui.press('volumedown')
+    
+    def process_command(self, command):
+        """معالجة الأوامر"""
+        if not command:
+            return
+        
+        command_lower = command.lower()
+        
+        # البحث عن الأمر المناسب
+        for cmd in self.commands:
+            if cmd in command_lower:
+                # إذا كان الأمر يحتوي على نص إضافي
+                if cmd in ["ابحث عن", "اكتب"]:
+                    # استخراج النص بعد الأمر
+                    text = command_lower.replace(cmd, "").strip()
+                    if cmd == "ابحث عن":
+                        self.commands[cmd](text)
+                    elif cmd == "اكتب":
+                        self.commands[cmd](text)
+                else:
+                    self.commands[cmd]()
+                return
+        
+        # إذا لم يتم التعرف على الأمر
+        self.speak("لم أتعرف على هذا الأمر، يمكنك قول مثلا: افتح المتصفح")
+    
+    def run(self):
+        """تشغيل المساعد الصوتي"""
+        self.speak("مرحباً، أنا مساعدك الصوتي للتحكم بالكمبيوتر")
+        self.speak("يمكنك قول: افتح المتصفح، اكتب رسالة، ابحث عن، أو توقف")
+        
+        while self.running:
+            command = self.listen()
+            self.process_command(command)
+
+# تشغيل البرنامج
+if __name__ == "__main__":
+    assistant = VoiceAssistant()
+    assistant.run()
