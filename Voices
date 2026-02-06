@@ -1,0 +1,27 @@
+#==================offline================
+
+import pyttsx3 as p
+
+def speak_off(text):
+
+    engine = p.init()
+
+    voices = engine.getProperty('voices')
+    engine.setProperty('voice',voices[1].id)
+    engine.say(text)
+    engine.runAndWait()
+#==================online==================
+from gtts import gTTS
+from IPython.display import Audio, display
+import os
+
+def speak(text):
+    tts = gTTS(text=text, lang='ar')
+    tts.save("online.mp3")
+    display(Audio("online.mp3", autoplay=True))
+    os.remove("online.mp3")
+
+ if __name__ == "__main__":
+   speak("مرحبًا، هذه تجربة الصوت الأونلاين.")
+
+   
