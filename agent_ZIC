@@ -1,0 +1,903 @@
+import os
+import json
+import time
+import pickle
+from datetime import datetime
+from typing import List, Dict, Any, Optional
+import hashlib
+
+# تنصيب المكتبات المتقدمة
+try:
+    import openai
+    from langchain.chains import LLMChain
+    from langchain.prompts import PromptTemplate
+    from langchain.memory import ConversationBufferMemory
+    from langchain.vectorstores import Chroma
+    from langchain.embeddings import OpenAIEmbeddings
+    from langchain.text_splitter import RecursiveCharacterTextSplitter
+    from langchain.chat_models import ChatOpenAI
+    import chromadb
+    from chromadb.config import Settings
+    CHROMA_AVAILABLE = True
+except ImportError:
+    CHROMA_AVAILABLE = False
+    print("يجب تثبيت المكتبات: pip install openai chromadb langchain")
+
+class ReflexionMemory:
+    """ذاكرة انعكاسية للتقييم والتعلم من التجارب"""
+    
+    def __init__(self, memory_path="reflexion_memory.pkl"):
+        self.memory_path = memory_path
+        self.experiences = []
+        self.success_patterns = []
+        self.failure_patterns = []
+        self.load_memory()
+    
+    def add_experience(self, task: str, action: str, result: str, success: bool):
+        """إضافة تجربة جديدة"""
+        experience = {
+            'timestamp': datetime.now(),
+            'task': task,
+            'action': action,
+            'result': result,
+            'success': success
+        }
+        self.experiences.append(experience)
+        
+        if success:
+            self.success_patterns.append({
+                'task_type': self.categorize_task(task),
+                'action': action
+            })
+        else:
+            self.failure_patterns.append({
+                'task_type': self.categorize_task(task),
+                'action': action,
+                'result': result
+            })
+        
+        self.save_memory()
+        
+        # تقييم ذاتي
+        if not success:
+            self.reflect_on_failure(task, action, result)
+    
+    def categorize_task(self, task: str) -> str:
+        """تصنيف المهام"""
+        task_lower = task.lower()
+        categories = {
+            'web': ['ابحث', 'جوجل', 'موقع', 'رابط'],
+            'file': ['احفظ', 'افتح ملف', 'اقرأ', 'اكتب'],
+            'system': ['أغلق', 'افتح برنامج', 'تشغيل', 'إيقاف'],
+            'creative': ['اكتب', 'أنشئ', 'صمم', 'ابتكر'],
+            'analysis': ['حلل', 'قارن', 'اكتشف', 'افهم']
+        }
+        
+        for category, keywords in categories.items():
+            for keyword in keywords:
+                if keyword in task_lower:
+                    return category
+        
+        return 'general'
+    
+    def reflect_on_failure(self, task: str, action: str, result: str):
+        """التفكير في الفشل وتحسين المستقبل"""
+        reflection = {
+            'failed_task': task,
+            'failed_action': action,
+            'failure_reason': self.analyze_failure_reason(result),
+            'alternative_approach': self.suggest_alternative(task),
+            'learned_lesson': f"عند {task}، لا تفعل {action} لأن {result}"
+        }
+        
+        # حفظ الانعكاس
+        if not hasattr(self, 'reflections'):
+            self.reflections = []
+        self.reflections.append(reflection)
+    
+    def analyze_failure_reason(self, result: str) -> str:
+        """تحليل سبب الفشل"""
+        result_lower = result.lower()
+        
+        reasons = {
+            'permission': ['صلاحية', 'مصرح', 'مسموح'],
+            'resource': ['غير موجود', 'لم أجد', 'لا يوجد'],
+            'connection': ['اتصال', 'انترنت', 'شبكة'],
+            'syntax': ['خطأ في', 'صيغة', 'تركيب'],
+            'timeout': ['مهلة', 'بطيء', 'تأخر']
+        }
+        
+        for reason, keywords in reasons.items():
+            for keyword in keywords:
+                if keyword in result_lower:
+                    return reason
+        
+        return 'unknown'
+    
+    def suggest_alternative(self, task: str) -> str:
+        """اقتراح بديل بناءً على التجارب السابقة"""
+        task_category = self.categorize_task(task)
+        
+        # البحث عن نجاحات سابقة في نفس الفئة
+        alternatives = []
+        for pattern in self.success_patterns:
+            if pattern['task_type'] == task_category:
+                alternatives.append(pattern['action'])
+        
+        return alternatives[0] if alternatives else "حاول بطريقة مختلفة"
+    
+    def get_advice(self, task: str) -> str:
+        """الحصول على نصيحة بناءً على التجارب السابقة"""
+        task_category = self.categorize_task(task)
+        
+        # تجنب أفعال فاشلة سابقة
+        warnings = []
+        for pattern in self.failure_patterns:
+            if pattern['task_type'] == task_category:
+                warnings.append(f"تجنب: {pattern['action']}")
+        
+        # اقتراح أفعال ناجحة
+        suggestions = []
+        for pattern in self.success_patterns:
+            if pattern['task_type'] == task_category:
+                suggestions.append(f"جرب: {pattern['action']}")
+        
+        advice = ""
+        if warnings:
+            advice += "تحذيرات: " + "، ".join(warnings[:3]) + "\n"
+        if suggestions:
+            advice += "اقتراحات: " + "، ".join(suggestions[:3])
+        
+        return advice if advice else "لا توجد خبرات سابقة، جرب وتعلم"
+    
+    def save_memory(self):
+        """حفظ الذاكرة"""
+        with open(self.memory_path, 'wb') as f:
+            pickle.dump({
+                'experiences': self.experiences,
+                'success_patterns': self.success_patterns,
+                'failure_patterns': self.failure_patterns,
+                'reflections': getattr(self, 'reflections', [])
+            }, f)
+    
+    def load_memory(self):
+        """تحميل الذاكرة"""
+        if os.path.exists(self.memory_path):
+            with open(self.memory_path, 'rb') as f:
+                data = pickle.load(f)
+                self.experiences = data.get('experiences', [])
+                self.success_patterns = data.get('success_patterns', [])
+                self.failure_patterns = data.get('failure_patterns', [])
+                self.reflections = data.get('reflections', [])
+
+class KnowledgeBase:
+    """قاعدة معرفية باستخدام ChromaDB"""
+    
+    def __init__(self, persist_directory="./chroma_db"):
+        self.persist_directory = persist_directory
+        self.text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=1000,
+            chunk_overlap=200
+        )
+        
+        # استخدام embeddings محلية إذا لم يتوفر OpenAI
+        try:
+            self.embeddings = OpenAIEmbeddings()
+            self.use_local = False
+        except:
+            print("استخدام embeddings محلية (لتجنب تكاليف API)")
+            self.use_local = True
+            self.embeddings = None
+        
+        self.vectorstore = None
+        self.load_or_create_db()
+    
+    def load_or_create_db(self):
+        """تحميل أو إنشاء قاعدة البيانات"""
+        if CHROMA_AVAILABLE:
+            try:
+                if self.use_local:
+                    # استخدام embeddings محلية بسيطة
+                    self.vectorstore = Chroma(
+                        persist_directory=self.persist_directory,
+                        embedding_function=self.simple_embedding
+                    )
+                else:
+                    self.vectorstore = Chroma(
+                        persist_directory=self.persist_directory,
+                        embedding_function=self.embeddings
+                    )
+                print(f"تم تحميل قاعدة المعرفة من {self.persist_directory}")
+            except:
+                print("إنشاء قاعدة معرفية جديدة")
+                self.vectorstore = Chroma(
+                    persist_directory=self.persist_directory,
+                    embedding_function=self.simple_embedding if self.use_local else self.embeddings
+                )
+        else:
+            print("ChromaDB غير متاح، استخدام ذاكرة بسيطة")
+            self.vectorstore = None
+            self.memory_storage = []
+    
+    def simple_embedding(self, text: str) -> List[float]:
+        """دالة تضمين بسيطة محلية"""
+        # خوارزمية بسيطة لتوليد متجه ثابت الطول
+        import numpy as np
+        text_hash = hashlib.md5(text.encode()).hexdigest()
+        
+        # تحويل الهاش إلى متجه بطول 384 (مثل models الصغيرة)
+        vector = []
+        for i in range(0, 32, 2):
+            hex_pair = text_hash[i:i+2]
+            num = int(hex_pair, 16) / 255.0
+            # تكرار لجعل الطول 384
+            for j in range(12):
+                vector.append(num + (j * 0.01))
+        
+        return vector[:384]  # تأكد من الطول الصحيح
+    
+    def add_knowledge(self, text: str, metadata: Dict = None):
+        """إضافة معرفة جديدة"""
+        if not text.strip():
+            return
+        
+        if metadata is None:
+            metadata = {
+                'source': 'agent_learning',
+                'timestamp': datetime.now().isoformat(),
+                'type': 'experience'
+            }
+        
+        if self.vectorstore:
+            # تقسيم النص
+            chunks = self.text_splitter.split_text(text)
+            
+            # إضافة كل جزء
+            for i, chunk in enumerate(chunks):
+                chunk_metadata = metadata.copy()
+                chunk_metadata['chunk'] = i
+                self.vectorstore.add_texts(
+                    texts=[chunk],
+                    metadatas=[chunk_metadata]
+                )
+        else:
+            # تخزين بسيط
+            self.memory_storage.append({
+                'text': text,
+                'metadata': metadata,
+                'embedding': self.simple_embedding(text) if hasattr(self, 'simple_embedding') else []
+            })
+    
+    def search(self, query: str, k: int = 3) -> List[Dict]:
+        """البحث في قاعدة المعرفة"""
+        results = []
+        
+        if self.vectorstore:
+            try:
+                docs = self.vectorstore.similarity_search(query, k=k)
+                for doc in docs:
+                    results.append({
+                        'content': doc.page_content,
+                        'metadata': doc.metadata
+                    })
+            except Exception as e:
+                print(f"خطأ في البحث: {e}")
+        elif hasattr(self, 'memory_storage'):
+            # بحث بسيط
+            query_lower = query.lower()
+            for item in self.memory_storage:
+                if query_lower in item['text'].lower():
+                    results.append(item)
+        
+        return results[:k]
+    
+    def get_relevant_context(self, task: str) -> str:
+        """الحصول على السياق المناسب للمهمة"""
+        search_results = self.search(task)
+        
+        if not search_results:
+            return "لا يوجد معرفة سابقة عن هذا الموضوع"
+        
+        context_parts = []
+        for i, result in enumerate(search_results, 1):
+            content = result.get('content', result.get('text', ''))
+            source = result.get('metadata', {}).get('source', 'unknown')
+            context_parts.append(f"[المعرفة {i} من {source}]: {content[:200]}...")
+        
+        return "\n".join(context_parts)
+
+class TaskPlanner:
+    """مخطط المهام"""
+    
+    def __init__(self):
+        self.tasks = []
+        self.current_task_index = 0
+    
+    def plan_from_goal(self, goal: str) -> List[Dict]:
+        """تحويل الهدف إلى قائمة مهام"""
+        # تحليل الهدف
+        goal_analysis = self.analyze_goal(goal)
+        
+        # توليد المهام
+        tasks = self.generate_tasks(goal_analysis)
+        
+        # إضافة معلومات التنفيذ
+        for i, task in enumerate(tasks):
+            task['id'] = i + 1
+            task['status'] = 'pending'
+            task['dependencies'] = self.find_dependencies(task, tasks[:i])
+        
+        self.tasks = tasks
+        return tasks
+    
+    def analyze_goal(self, goal: str) -> Dict:
+        """تحليل الهدف"""
+        goal_lower = goal.lower()
+        
+        analysis = {
+            'complexity': 'medium',
+            'domain': self.detect_domain(goal),
+            'steps_estimate': 3,
+            'resources_needed': []
+        }
+        
+        # تحليل التعقيد
+        complexity_keywords = {
+            'simple': ['اعرض', 'أخبر', 'قل', 'اشرح باختصار'],
+            'medium': ['ابحث', 'حلل', 'قارن', 'لخص'],
+            'complex': ['صمم', 'أنشئ', 'طور', 'حل مشكلة', 'ابتكر']
+        }
+        
+        for level, keywords in complexity_keywords.items():
+            for keyword in keywords:
+                if keyword in goal_lower:
+                    analysis['complexity'] = level
+                    break
+        
+        # تقدير عدد الخطوات
+        if analysis['complexity'] == 'simple':
+            analysis['steps_estimate'] = 2
+        elif analysis['complexity'] == 'medium':
+            analysis['steps_estimate'] = 4
+        else:
+            analysis['steps_estimate'] = 6
+        
+        return analysis
+    
+    def detect_domain(self, goal: str) -> str:
+        """كشف المجال"""
+        goal_lower = goal.lower()
+        
+        domains = {
+            'research': ['ابحث', 'ادرس', 'اكتشف', 'تعرف على'],
+            'writing': ['اكتب', 'أنشئ نص', 'صيغ', 'لخص'],
+            'programming': ['برمجة', 'كود', 'سكريبت', 'تطوير'],
+            'analysis': ['حلل', 'افهم', 'فسر', 'استنتج'],
+            'creative': ['صمم', 'ابتكر', 'أنشئ', 'تخيل']
+        }
+        
+        for domain, keywords in domains.items():
+            for keyword in keywords:
+                if keyword in goal_lower:
+                    return domain
+        
+        return 'general'
+    
+    def generate_tasks(self, analysis: Dict) -> List[Dict]:
+        """توليد المهام"""
+        tasks = []
+        
+        if analysis['domain'] == 'research':
+            tasks = [
+                {'description': 'البحث عن المعلومات الأساسية', 'type': 'research'},
+                {'description': 'تحليل النتائج وتنظيمها', 'type': 'analysis'},
+                {'description': 'تلخيص النتائج في تقرير', 'type': 'writing'}
+            ]
+        elif analysis['domain'] == 'writing':
+            tasks = [
+                {'description': 'جمع الأفكار والمعلومات', 'type': 'research'},
+                {'description': 'إنشاء مخطط للمحتوى', 'type': 'planning'},
+                {'description': 'كتابة المحتوى', 'type': 'writing'},
+                {'description': 'مراجعة وتحرير المحتوى', 'type': 'review'}
+            ]
+        else:
+            # مهام عامة
+            tasks = [
+                {'description': 'فهم المتطلبات والمعلومات المتاحة', 'type': 'analysis'},
+                {'description': 'التخطيط للتنفيذ', 'type': 'planning'},
+                {'description': 'تنفيذ المهمة', 'type': 'execution'},
+                {'description': 'مراجعة النتائج', 'type': 'review'}
+            ]
+        
+        # تعديل بناءً على التعقيد
+        if analysis['complexity'] == 'complex':
+            tasks.insert(1, {'description': 'بحث متعمق وإضافي', 'type': 'deep_research'})
+        
+        return tasks
+    
+    def find_dependencies(self, task: Dict, previous_tasks: List[Dict]) -> List[int]:
+        """إيجاد تبعيات المهام"""
+        dependencies = []
+        
+        task_type = task['type']
+        
+        # قواعد التبعيات
+        dependency_rules = {
+            'writing': ['research', 'analysis'],
+            'analysis': ['research'],
+            'execution': ['planning', 'research'],
+            'review': ['writing', 'execution']
+        }
+        
+        if task_type in dependency_rules:
+            for i, prev_task in enumerate(previous_tasks):
+                if prev_task['type'] in dependency_rules[task_type]:
+                    dependencies.append(prev_task['id'])
+        
+        return dependencies
+    
+    def get_next_task(self) -> Optional[Dict]:
+        """الحصول على المهمة التالية"""
+        for task in self.tasks:
+            if task['status'] == 'pending':
+                # التحقق من التبعيات
+                if all(dep_id <= self.current_task_index for dep_id in task.get('dependencies', [])):
+                    return task
+        
+        return None
+    
+    def mark_task_complete(self, task_id: int, result: str = ""):
+        """تعليم المهمة كمكتملة"""
+        for task in self.tasks:
+            if task['id'] == task_id:
+                task['status'] = 'completed'
+                task['result'] = result
+                task['completed_at'] = datetime.now().isoformat()
+                self.current_task_index = max(self.current_task_index, task_id)
+                break
+    
+    def mark_task_failed(self, task_id: int, reason: str = ""):
+        """تعليم المهمة كفاشلة"""
+        for task in self.tasks:
+            if task['id'] == task_id:
+                task['status'] = 'failed'
+                task['failure_reason'] = reason
+                break
+
+class AutonomousAgent:
+    """الوكيل المستقل الرئيسي"""
+    
+    def __init__(self, name="المساعد الذكي", use_openai=False):
+        self.name = name
+        self.use_openai = use_openai
+        
+        # المكونات
+        self.memory = ReflexionMemory()
+        self.knowledge_base = KnowledgeBase()
+        self.task_planner = TaskPlanner()
+        
+        # حالة الوكيل
+        self.current_goal = ""
+        self.thinking_log = []
+        self.learning_mode = True
+        
+        # الأدوات المتاحة
+        self.tools = self.initialize_tools()
+        
+        # تهيئة نموذج اللغة (يمكن استخدام محلي أو OpenAI)
+        self.llm = self.initialize_llm()
+        
+        print(f"تم تهيئة الوكيل: {self.name}")
+    
+    def initialize_tools(self) -> Dict:
+        """تهيئة الأدوات المتاحة"""
+        tools = {
+            'web_search': self.web_search_tool,
+            'file_operation': self.file_operation_tool,
+            'system_command': self.system_command_tool,
+            'calculation': self.calculation_tool,
+            'knowledge_query': self.knowledge_query_tool,
+            'creative_writing': self.creative_writing_tool
+        }
+        return tools
+    
+    def initialize_llm(self):
+        """تهيئة نموذج اللغة"""
+        if self.use_openai:
+            try:
+                # تحتاج إلى إضافة مفتاح OpenAI في ملف .env
+                from langchain.llms import OpenAI
+                return OpenAI(temperature=0.7)
+            except:
+                print("OpenAI غير متوفر، استخدام نماذج محلية بسيطة")
+                return None
+        else:
+            print("استخدام نماذج منطقية بسيطة")
+            return None
+    
+    def think(self, situation: str) -> str:
+        """عملية التفكير"""
+        thought_process = f"""
+        الموقف: {situation}
+        
+        الخطوات المنطقية:
+        1. تحليل الموقف الحالي
+        2. مراجعة الذاكرة والخبرات السابقة
+        3. البحث في قاعدة المعرفة
+        4. تحديد أفضل إجراء
+        5. التخطيط للتنفيذ
+        
+        قرار التفكير: سأقوم بـ"""
+        
+        # البحث في الذاكرة
+        memory_advice = self.memory.get_advice(situation)
+        if memory_advice:
+            thought_process += f"\nنصيحة من الذاكرة: {memory_advice}"
+        
+        # البحث في قاعدة المعرفة
+        knowledge_context = self.knowledge_base.get_relevant_context(situation)
+        if "لا يوجد معرفة" not in knowledge_context:
+            thought_process += f"\nمعرفة سابقة: {knowledge_context}"
+        
+        self.thinking_log.append({
+            'timestamp': datetime.now(),
+            'situation': situation,
+            'thought_process': thought_process
+        })
+        
+        return thought_process
+    
+    def execute_task(self, task_description: str) -> Dict:
+        """تنفيذ مهمة"""
+        print(f"\n{'='*50}")
+        print(f"تنفيذ: {task_description}")
+        print(f"{'='*50}")
+        
+        # التفكير أولاً
+        thinking = self.think(task_description)
+        print(f"التفكير: {thinking[:200]}...")
+        
+        # اختيار الأداة المناسبة
+        selected_tool, tool_name = self.select_tool(task_description)
+        
+        # التنفيذ
+        start_time = time.time()
+        try:
+            if selected_tool:
+                result = selected_tool(task_description)
+                success = True
+            else:
+                result = "لم أستطع تحديد الأداة المناسبة"
+                success = False
+        except Exception as e:
+            result = f"خطأ في التنفيذ: {str(e)}"
+            success = False
+        
+        execution_time = time.time() - start_time
+        
+        # تسجيل النتيجة
+        execution_record = {
+            'task': task_description,
+            'tool_used': tool_name,
+            'result': result,
+            'success': success,
+            'execution_time': execution_time,
+            'timestamp': datetime.now().isoformat()
+        }
+        
+        # التعلم من التجربة
+        self.memory.add_experience(task_description, tool_name, result, success)
+        
+        # إضافة إلى قاعدة المعرفة إذا كانت ناجحة
+        if success and "بحث" in task_description.lower():
+            self.knowledge_base.add_knowledge(
+                f"مهمة: {task_description}\nنتيجة: {result}",
+                {'type': 'execution_result', 'success': success}
+            )
+        
+        return execution_record
+    
+    def select_tool(self, task_description: str):
+        """اختيار الأداة المناسبة"""
+        task_lower = task_description.lower()
+        
+        tool_mapping = [
+            (['بحث', 'جوجل', 'موقع', 'رابط'], 'web_search'),
+            (['ملف', 'احفظ', 'اقرأ', 'كتابة'], 'file_operation'),
+            (['افتح', 'أغلق', 'تشغيل', 'برنامج'], 'system_command'),
+            (['احسب', 'رياضيات', 'رقم', 'عملية'], 'calculation'),
+            (['اسأل', 'اعرف', 'معلومات', 'خبرة'], 'knowledge_query'),
+            (['اكتب', 'أنشئ', 'صمم', 'ابتكر'], 'creative_writing')
+        ]
+        
+        for keywords, tool_name in tool_mapping:
+            for keyword in keywords:
+                if keyword in task_lower:
+                    return self.tools[tool_name], tool_name
+        
+        return None, "unknown"
+    
+    def web_search_tool(self, query: str) -> str:
+        """أداة البحث على الويب (محاكاة)"""
+        print(f"البحث عن: {query}")
+        
+        # محاكاة البحث
+        simulated_results = [
+            f"معلومات حول {query} - المصدر 1: وجدت أن هذا الموضوع مهم ويحتوي على جوانب متعددة.",
+            f"نتائج عن {query} - المصدر 2: هناك عدة دراسات تناولت هذا الموضوع مؤخرًا.",
+            f"مقالات عن {query} - المصدر 3: يمكن العثور على تطبيقات عملية في الحياة اليومية."
+        ]
+        
+        time.sleep(1)  # محاكاة وقت البحث
+        
+        return "\n".join(simulated_results[:2])
+    
+    def file_operation_tool(self, operation: str) -> str:
+        """أداة عمليات الملفات"""
+        print(f"عملية ملف: {operation}")
+        
+        if 'احفظ' in operation.lower():
+            filename = f"ملف_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            content = f"محتوى تم إنشاؤه تلقائياً بناءً على: {operation}"
+            
+            try:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                return f"تم حفظ الملف: {filename}"
+            except Exception as e:
+                return f"خطأ في الحفظ: {str(e)}"
+        
+        return f"تمت عملية الملف: {operation}"
+    
+    def system_command_tool(self, command: str) -> str:
+        """أداة أوامر النظام"""
+        print(f"أمر نظام: {command}")
+        
+        # محاكاة أوامر النظام
+        if 'افتح' in command.lower():
+            if 'متصفح' in command.lower():
+                return "تم فتح المتصفح (محاكاة)"
+            elif 'مجلد' in command.lower():
+                return "تم فتح المستكشف (محاكاة)"
+        
+        return f"تم تنفيذ أمر النظام: {command}"
+    
+    def calculation_tool(self, expression: str) -> str:
+        """أداة الحساب"""
+        print(f"حساب: {expression}")
+        
+        try:
+            # استخراج الأرقام
+            import re
+            numbers = re.findall(r'\d+', expression)
+            
+            if len(numbers) >= 2:
+                num1, num2 = int(numbers[0]), int(numbers[1])
+                
+                if 'جمع' in expression or '+' in expression:
+                    result = num1 + num2
+                    return f"النتيجة: {num1} + {num2} = {result}"
+                elif 'طرح' in expression or '-' in expression:
+                    result = num1 - num2
+                    return f"النتيجة: {num1} - {num2} = {result}"
+                elif 'ضرب' in expression or '*' in expression:
+                    result = num1 * num2
+                    return f"النتيجة: {num1} × {num2} = {result}"
+                elif 'قسمة' in expression or '/' in expression:
+                    if num2 != 0:
+                        result = num1 / num2
+                        return f"النتيجة: {num1} ÷ {num2} = {result}"
+                    else:
+                        return "خطأ: القسمة على صفر"
+            
+            return "لم أستطع فهم عملية الحساب"
+        except Exception as e:
+            return f"خطأ في الحساب: {str(e)}"
+    
+    def knowledge_query_tool(self, query: str) -> str:
+        """أداة الاستعلام عن المعرفة"""
+        print(f"استعلام معرفة: {query}")
+        
+        results = self.knowledge_base.search(query)
+        
+        if results:
+            response = f"وجدت {len(results)} نتيجة:\n"
+            for i, result in enumerate(results, 1):
+                content = result.get('content', result.get('text', ''))
+                response += f"\n{i}. {content[:150]}..."
+            return response
+        else:
+            return "لم أجد معلومات عن هذا الاستعلام في قاعدة معرفتي"
+    
+    def creative_writing_tool(self, prompt: str) -> str:
+        """أداة الكتابة الإبداعية"""
+        print(f"كتابة إبداعية: {prompt}")
+        
+        # قوالب الكتابة
+        templates = {
+            'قصة': f"كان يا ما كان في قديم الزمان... {prompt}",
+            'مقال': f"مقدمة عن {prompt}...\n\nالموضوع الرئيسي: {prompt} هو موضوع مهم...\n\nخاتمة: وفي النهاية نستنتج أن...",
+            'شعر': f"يا {prompt} الجميل\nأنت نور الدليل\nفي بحر من الأمل\nتسمو بك الأقوال",
+            'تقرير': f"تقرير عن: {prompt}\n\nالمقدمة: يتمحور هذا التقرير حول {prompt}\n\nالتحليل: بعد الدراسة توصلنا إلى...\n\nالتوصيات: نوصي بـ..."
+        }
+        
+        for pattern, template in templates.items():
+            if pattern in prompt.lower():
+                return template
+        
+        return f"نص إبداعي عن {prompt}:\n\n{prompt} هو موضوع شيق وجدير بالاهتمام. يمكننا أن نرى أهمية هذا الموضوع في حياتنا اليومية من خلال..."
+    
+    def pursue_goal(self, goal: str):
+        """متابعة هدف معين"""
+        print(f"\n{'#'*60}")
+        print(f"بدء متابعة الهدف: {goal}")
+        print(f"{'#'*60}\n")
+        
+        self.current_goal = goal
+        
+        # التخطيط
+        tasks = self.task_planner.plan_from_goal(goal)
+        
+        print(f"المهام المخططة ({len(tasks)}):")
+        for task in tasks:
+            deps = task.get('dependencies', [])
+            deps_str = f" ← يعتمد على {deps}" if deps else ""
+            print(f"  {task['id']}. {task['description']}{deps_str}")
+        
+        print("\nبدء التنفيذ...\n")
+        
+        # التنفيذ
+        results = []
+        max_iterations = len(tasks) * 2  # لمنع التكرار اللانهائي
+        iteration = 0
+        
+        while iteration < max_iterations:
+            next_task = self.task_planner.get_next_task()
+            
+            if not next_task:
+                print("جميع المهام مكتملة!")
+                break
+            
+            print(f"\nالمهمة التالية: {next_task['description']}")
+            
+            # التنفيذ
+            execution_result = self.execute_task(next_task['description'])
+            
+            # تحديث حالة المهمة
+            if execution_result['success']:
+                self.task_planner.mark_task_complete(
+                    next_task['id'],
+                    execution_result['result'][:100] + "..."
+                )
+                print(f"✓ تم إكمال المهمة {next_task['id']}")
+            else:
+                self.task_planner.mark_task_failed(
+                    next_task['id'],
+                    execution_result['result']
+                )
+                print(f"✗ فشلت المهمة {next_task['id']}")
+            
+            results.append(execution_result)
+            iteration += 1
+        
+        # تقرير النتائج
+        self.generate_report(goal, results)
+        
+        return results
+    
+    def generate_report(self, goal: str, results: List[Dict]):
+        """توليد تقرير عن النتائج"""
+        print(f"\n{'='*60}")
+        print("تقرير الأداء")
+        print(f"{'='*60}")
+        
+        total_tasks = len(results)
+        successful_tasks = sum(1 for r in results if r['success'])
+        failed_tasks = total_tasks - successful_tasks
+        
+        print(f"الهدف: {goal}")
+        print(f"المهام الكلية: {total_tasks}")
+        print(f"المهام الناجحة: {successful_tasks}")
+        print(f"المهام الفاشلة: {failed_tasks}")
+        
+        if successful_tasks > 0:
+            avg_time = sum(r['execution_time'] for r in results if r['success']) / successful_tasks
+            print(f"متوسط وقت التنفيذ: {avg_time:.2f} ثانية")
+        
+        # الدروس المستفادة
+        print(f"\nالدروس المستفادة:")
+        recent_experiences = self.memory.experiences[-min(3, len(self.memory.experiences)):]
+        for exp in recent_experiences:
+            status = "✓" if exp['success'] else "✗"
+            print(f"  {status} {exp['task'][:50]}...")
+    
+    def interactive_mode(self):
+        """وضع التفاعل مع المستخدم"""
+        print(f"\nمرحباً! أنا {self.name}، وكيل مستقل يمكنه التعلم والتفكير.")
+        print("أدخل 'خروج' للإنهاء، أو 'هدف' لمتابعة هدف معين.")
+        print("يمكنك أيضاً سؤالي مباشرة عن أي شيء.\n")
+        
+        while True:
+            user_input = input("أنت: ").strip()
+            
+            if not user_input:
+                continue
+            
+            if user_input.lower() in ['خروج', 'exit', 'quit']:
+                print("مع السلامة!")
+                break
+            
+            elif user_input.lower() in ['هدف', 'مهمة', 'goal']:
+                goal = input("ما هو الهدف الذي تريد متابعته؟ ")
+                self.pursue_goal(goal)
+            
+            elif user_input.lower() in ['ذاكرة', 'memory']:
+                print(f"التجارب المخزنة: {len(self.memory.experiences)}")
+                print(f"أنماط النجاح: {len(self.memory.success_patterns)}")
+                print(f"أنماط الفشل: {len(self.memory.failure_patterns)}")
+            
+            elif user_input.lower() in ['معرفة', 'knowledge']:
+                query = input("ماذا تريد البحث في المعرفة؟ ")
+                results = self.knowledge_base.search(query)
+                print(f"النتائج: {len(results)}")
+                for r in results[:2]:
+                    print(f"- {r.get('content', r.get('text', ''))[:100]}...")
+            
+            else:
+                # معالجة كمهمة مباشرة
+                print(f"\n{self.name}: أفكر في طلبك...")
+                result = self.execute_task(user_input)
+                
+                if result['success']:
+                    print(f"\n{self.name}: {result['result'][:200]}")
+                else:
+                    print(f"\n{self.name}: حدث خطأ - {result['result']}")
+
+def main():
+    """الدالة الرئيسية"""
+    print("تهيئة النظام الذكي المستقل...")
+    
+    # إنشاء الوكيل
+    agent = AutonomousAgent(
+        name="العقل الاصطناعي المتطور",
+        use_openai=False  # تغيير إلى True إذا كان لديك مفتاح OpenAI
+    )
+    
+    # اختبار النظام
+    test_goals = [
+        "ابحث عن الذكاء الاصطناعي وتعلم الآلة",
+        "اكتب مقال قصير عن أهمية التكنولوجيا",
+        "احسب عمليات رياضية بسيطة"
+    ]
+    
+    # يمكنك اختيار وضع التشغيل
+    mode = input("اختر وضع التشغيل (1: تفاعلي، 2: تجريبي): ").strip()
+    
+    if mode == "1":
+        # الوضع التفاعلي
+        agent.interactive_mode()
+    else:
+        # اختبار تلقائي
+        print("\nبدء الاختبار التلقائي...")
+        for goal in test_goals:
+            print(f"\nاختبار الهدف: {goal}")
+            agent.pursue_goal(goal)
+            time.sleep(2)
+        
+        print("\nالاختبار اكتمل!")
+        
+        # عرض الملخص
+        print(f"\nملخص التعلم:")
+        print(f"- التجارب: {len(agent.memory.experiences)}")
+        print(f"- المعرفة المخزنة: {len(agent.knowledge_base.memory_storage) if hasattr(agent.knowledge_base, 'memory_storage') else 'في قاعدة بيانات'}")
+        
+        # حفظ المعرفة
+        agent.knowledge_base.add_knowledge(
+            "خبرة نظام الاختبار: تم تنفيذ عدة مهام بنجاح وتعلم أنظمة مختلفة",
+            {'type': 'system_test', 'success_rate': 'high'}
+        )
+        
+        print("تم حفظ المعرفة الجديدة!")
+
+if __name__ == "__main__":
+    main()
