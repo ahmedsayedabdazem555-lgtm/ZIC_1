@@ -1,0 +1,466 @@
+
+#============ ***النموزج الاول ONLINE*** ==============
+
+import google.generativeai as genai
+
+from typing import Dict
+
+class ZIC_Online:
+    """الموديل الأونلاين (Gemini)"""
+
+    def __init__(self, api_key: str):
+        genai.configure(api_key=api_key)
+        self.model = genai.GenerativeModel('gemini-flash-latest')
+        self.chat = self.model.start_chat(history=[])
+
+    def generate_response(self, prompt: str, context: Dict) -> str:
+        """توليد رد من الموديل الأونلاين"""
+        try:
+            enhanced_prompt = f"""
+            {context.get('static_memory', '')}
+
+            الذاكرة الحديثة:
+            {context.get('short_memory', '')}
+
+            المعلومات المخزنة:
+            {context.get('long_memory', '')}
+
+            تحليل التفكير:
+            {context.get('thinking_report', '')}
+
+            السؤال الحالي: {prompt}
+
+            تعليمات مهمة:
+            1. ركز على المعلومات ذات الصلة من الذاكرة
+            2. كن دقيقاً وصريحاً
+            3. اكتب بالعربية المصرية الواضحة
+            4. إذا كنت غير متأكد، قل ذلك بوضوح
+            """
+
+            response = self.chat.send_message(enhanced_prompt)
+            return response.text.strip()
+
+        except Exception as e:
+            return f"❌ حدث خطأ في الموديل الأونلاين: {str(e)}"
+
+MY_KEY = "AIzaSyDlUDWdTuRM9dbcBYeXi6AgnfmocAqkxY0"
+bot_online = ZIC_Online(MY_KEY)
+print("ZIC_Online instance re-initialized with chat memory.")
+
+from datetime import datetime
+
+memory_system = MemorySystem()
+
+start_time = datetime.now()
+
+while True:
+  user_input = input("  :   اي سواك ي قلبي ")
+  if "خروج" in user_input:
+    end_time = datetime.now()
+    duration = end_time - start_time
+    print(f"توقفت المحادثة. إلى اللقاء! مدة المحادثة كانت: {duration}")
+    break
+  else :
+    print("🌐 جاري سؤال الموديل (Online)...")
+    context = {
+        'static_memory': memory_system.static_memory,
+        'short_memory': memory_system.short_memory.get_formatted(),
+        'long_memory': memory_system.long_memory.get_formatted(),
+        'thinking_report': 'No thinking report available yet.' # Placeholder
+    }
+    answer = bot_online.generate_response(prompt=user_input, context=context)
+    # Assuming speak() will be defined or replaced later
+    # For now, print the answer
+    speak(answer)
+    print(answer)
+
+#========================================================================================================= بيئه عمل المود ال offline ==================================================================================================================
+
+import subprocess
+import sys
+import os
+import time
+
+# --- Comprehensive Ollama Setup ---
+print("⚙️ Starting comprehensive Ollama setup...")
+
+def install_ollama_binary():
+    ollama_path = '/usr/local/bin/ollama'
+    install_script_path = '/tmp/install_ollama.sh'
+
+    # Install zstd if not present, as required by Ollama install.sh
+    print("➡️ Checking for zstd and installing if necessary...")
+    try:
+        subprocess.run('dpkg -s zstd', shell=True, check=True, capture_output=True)
+        print("✅ zstd is already installed.")
+    except subprocess.CalledProcessError:
+        print("📥 zstd not found. Installing zstd...")
+        try:
+            subprocess.run('sudo apt-get update && sudo apt-get install -y zstd', shell=True, check=True)
+            print("✅ zstd installed successfully.")
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Failed to install zstd: {e.stderr}")
+            sys.exit(1)
+
+    print("📥 Downloading Ollama install.sh script...")
+    try:
+        # Download the install script
+        subprocess.run(f'curl -fsSL https://ollama.com/install.sh -o {install_script_path}', shell=True, check=True)
+        print(f"✅ Install script downloaded to {install_script_path}.")
+
+        # Make it executable
+        subprocess.run(f'chmod +x {install_script_path}', shell=True, check=True)
+        print(f"✅ Install script made executable.")
+
+        print("➡️ Running Ollama install.sh script...")
+        # Execute the install script with sudo to ensure proper permissions
+        result = subprocess.run(f'sudo {install_script_path}', shell=True, capture_output=True, text=True, check=False) # Do not check=True yet, we want to see output
+
+        if result.returncode != 0:
+            print(f"❌ Ollama install.sh script failed with exit status {result.returncode}.")
+            if result.stdout:
+                print("Script stdout:")
+                print(result.stdout)
+            if result.stderr:
+                print("Script stderr:")
+                print(result.stderr)
+            sys.exit(1)
+        else:
+            print("✅ Ollama installed successfully via install.sh.")
+            if result.stdout:
+                print("Script stdout:")
+                print(result.stdout)
+
+        # Verify the installation
+        file_type = subprocess.run(f'file {ollama_path}', shell=True, capture_output=True, text=True, check=True).stdout.strip()
+        print(f"File type of ollama: {file_type}")
+        version_output = subprocess.run(f'{ollama_path} --version', shell=True, capture_output=True, text=True, check=True).stdout.strip()
+        print(f"✅ Ollama verified: {version_output}")
+
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to install Ollama: {e}")
+        if e.stderr:
+            print(f"Stderr: {e.stderr}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"❌ An unexpected error occurred during Ollama installation: {e}")
+        sys.exit(1)
+
+def start_ollama_server():
+    ollama_path = '/usr/local/bin/ollama'
+    print("Starting Ollama server...")
+    try:
+        # Check if Ollama is already running
+        subprocess.check_output(['pgrep', 'ollama']).decode().strip()
+        print("✅ Ollama server is already running.")
+        return True
+    except subprocess.CalledProcessError:
+        pass # Ollama is not running, proceed to start it
+
+    try:
+        command = f"nohup {ollama_path} serve > ollama_server.log 2>&1 &"
+        subprocess.run(command, shell=True, check=True)
+        print("➡️ Ollama server started in background. Waiting for it to become ready...")
+
+        # Implement a robust check for server readiness
+        max_retries = 10
+        for i in range(max_retries):
+            try:
+                # Try to list models, which requires a running server
+                subprocess.run(f'{ollama_path} list', shell=True, check=True, capture_output=True, timeout=5)
+                print("✅ Ollama server is ready.")
+                return True
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
+                print(f"Waiting for Ollama server (attempt {i+1}/{max_retries})...")
+                time.sleep(5) # Wait 5 seconds before retrying
+
+        print("❌ Ollama server did not become ready within the timeout.")
+        return False
+    except Exception as e:
+        print(f"❌ Failed to start Ollama server: {e}")
+        return False
+
+def pull_ollama_model(model_name):
+    ollama_path = '/usr/local/bin/ollama'
+    print(f"Pulling {model_name} model (this may take a while)...")
+    try:
+        # Ensure ollama is found by using its full path
+        pull_command = f"{ollama_path} pull {model_name}"
+        process = subprocess.run(pull_command, shell=True, check=True, capture_output=True, text=True)
+        print(process.stdout)
+        print(f"✅ {model_name} model pulled successfully.")
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Failed to pull {model_name} model: {e.stderr}")
+        sys.exit(1)
+
+# Execute setup steps
+install_ollama_binary()
+
+# Ensure the model name matches what ZICBrain will use
+OLLAMA_MODEL_NAME = "llama3"
+
+if start_ollama_server():
+    pull_ollama_model(OLLAMA_MODEL_NAME)
+else:
+    print("Cannot proceed without a running Ollama server. Please check installation and try again.")
+    sys.exit(1)
+
+speak("تم ")
+
+#=========================================OFFLINE MODEL===================================
+
+!pip install ollama
+import ollama
+import sys
+import time
+from datetime import datetime
+
+class ZICBrain:
+    """الدماغ الأساسي لـ ZIC"""
+
+    def __init__(self):
+        """تجهيز ZIC للعمل"""
+        self.model_name = "llama3" # اسم الموديل
+        self.conversation_history = []  #1 للمحادثة في الـ session الواحدة
+
+        # System Prompt - شخصية ZIC
+        self.system_prompt = """أنت ZIC، المساعد الذكي الشخصي لأحمد.
+
+الصفات الأساسية:
+- انتا م بتتكلم بطريقه رسميه بتستعمل اخويا او معلم بتتعامل كانك عارفو و وا صحبك
+- تتكلم بالعربية المصرية الفصحى (مش عامية خالص، لكن واضحة)
+- ذكي، فضولي، ومتعلم دائماً
+- صريح: لو مش متأكد من معلومة، تقول "مش مش متأكد" بدل ما تخترع
+- تفكر قبل ما ترد
+- تسأل أسئلة توضيحية لو السؤال مش واضح
+- الي صنعك احمد انتا طريف و ردودك دايما لازم تبقي صح و متاكد منها
+- محب و فضولي اي سوال مش عارفو بتسال فيه
+المهمة: مساعدة أحمد في أي شيء يحتاجه بذكاء واحترافية."""
+
+
+
+        print("🤖 ZIC بيتجهز...")
+        # connect_to_model will now return True/False instead of exiting
+        # The calling code in H1Y26fnx2ixX will handle the result.
+
+    def connect_to_model(self):
+        """اختبار الاتصال بـ llama3"""
+        try:
+            print("🔌 جاري الاتصال بـ ZIC Offline ...")
+
+            # اختبار بسيط
+            response = ollama.chat(
+                model=self.model_name,
+                messages=[{"role": "user", "content": "test"}],
+                options={"num_predict": 5}  # رد قصير للاختبار فقط
+            )
+
+            if response:
+                print("✅ done يقلبي\n")
+                return True
+
+        except Exception as e:
+            print(f"❌ خطأ في الاتصال بالموديل:")
+            print(f"   {str(e)}")
+            print("\n💡 تأكد من:")
+            print("   1. Ollama مفتوح ويعمل")
+            print("   2. الموديل llama3 محمّل (ollama pull llama3)") # Updated model name in message
+            return False # Return False on failure instead of exiting
+
+    def ask_zic(self, question, use_history=True):
+        """
+        إرسال سؤال لـ ZIC واستقبال الرد
+
+        Args:
+            question (str): السؤال المطروح
+            use_history (bool): استخدام تاريخ المحادثة أم لا
+
+        Returns:
+            str: رد ZIC
+        """
+        try:
+            # بناء الرسائل
+            messages = []
+
+            # System prompt أولاً
+            messages.append({
+                "role": "system",
+                "content": self.system_prompt})
+            if use_history and self.conversation_history:
+                messages.extend(self.conversation_history[-10:])  # آخر 10 رسائل (5 أسئلة وأجوبة)
+
+            # السؤال الحالي
+            messages.append({
+                "role": "user",
+                "content": question
+            })
+
+            print("💭 ZIC اتقل بفكر ", end="", flush=True)
+
+            # إرسال للموديل
+            start_time = time.time()
+
+            response = ollama.chat(
+                model=self.model_name,
+                messages=messages,
+                options={
+                    "temperature": 0.7,      # متوازن بين creativity ودقة
+                    "top_p": 0.9,
+                    "num_predict": 500,      # أقصى طول للرد
+                }
+            )
+            print(f"DEBUG: Raw Ollama response object: {response}") # Debug print to see what the model returns
+
+            # Check if 'message' key exists and then 'content'
+            if 'message' in response and 'content' in response['message']:
+                answer = response['message']['content'].strip()
+                print(f"DEBUG: Extracted content: {answer}")
+            else:
+                answer = "❌ لم يتم العثور على رد صالح من الموديل."
+                print(f"DEBUG: Invalid response structure: {response}")
+
+            elapsed_time = time.time() - start_time
+            print(f"\r⏱️  ZIC فكر في {elapsed_time:.1f} ثانية")
+
+            # حفظ في تاريخ المحادثة
+            self.conversation_history.append({
+                "role": "user",
+                "content": question
+            })
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": answer
+            })
+
+            return answer
+
+        except KeyboardInterrupt:
+            print("\n\n⚠️  تم إيقاف ZIC من التفكير")
+            return None
+
+        except Exception as e:
+            print(f"\n❌ خطأ في الحصول على الرد: {str(e)}")
+            return None
+
+    def clear_history(self):
+        """مسح تاريخ المحادثة"""
+        self.conversation_history = []
+        print("🗑️  تم مسح الذاكرة القصيرة")
+
+    def save_conversation(self, filename=None):
+        """حفظ المحادثة في ملف نصي"""
+        if not self.conversation_history:
+            print("⚠️  لا توجد محادثة لحفظها")
+            return
+
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"zic_conversation_{timestamp}.txt"
+
+        try:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("=" * 50 + "\n")
+                f.write("ZIC Conversation Log\n")
+                f.write(f"التاريخ: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write("=" * 50 + "\n\n")
+
+                for msg in self.conversation_history:
+                    role = "أنت" if msg['role'] == 'user' else "ZIC"
+                    f.write(f"{role}: {msg['content']}\n\n")
+
+            print(f"💾 تم حفظ المحادثة في: {filename}")
+
+        except Exception as e:
+            print(f"❌ خطأ في حفظ المحادثة: {str(e)}")
+
+    def run(self):
+        """تشغيل ZIC - الـ Loop الأساسي"""
+        print("=" * 60)
+        print("🤖 ZIC جاهز للحوار!")
+        print("=" * 60)
+        print("\n💡 الأوامر المتاحة:")
+        print("   - اكتب أي سؤال للحوار")
+        print("   - 'مسح' → مسح الذاكرة القصيرة")
+        print("   - 'حفظ' → حفظ المحادثة")
+        print("   - 'خروج' → إنهاء البرنامج")
+        print("\n" + "=" * 60 + "\n")
+
+        while True:
+            try:
+                # استقبال السؤال
+                user_input = input("أنت: ").strip()
+
+                # التحقق من الأوامر الخاصة
+                if not user_input:
+                    continue
+
+                if user_input.lower() in ['خروج', 'exit', 'quit', 'bye']:
+                    print("\n👋 ZIC: مع السلامة يا أحمد! استمتعت بالحوار")
+
+                    # سؤال عن حفظ المحادثة
+                    if self.conversation_history:
+                        save = input("\n💾 عايز تحفظ المحادثة؟ (نعم/لا): ").strip().lower()
+                        if save in ['نعم', 'yes', 'y', 'ن']:
+                            self.save_conversation()
+
+                    break
+
+                if user_input.lower() in ['مسح', 'clear', 'reset']:
+                    self.clear_history()
+                    continue
+
+                if user_input.lower() in ['حفظ', 'save']:
+                    self.save_conversation()
+                    continue
+
+                # إرسال السؤال لـ ZIC
+                answer = self.ask_zic(user_input)
+
+                if answer:
+                    speak(f"\nZIC: {answer}\n")
+                    print("-" * 60 + "\n")
+
+            except KeyboardInterrupt:
+                print("\n\n⚠️  تم إيقاف ZIC")
+                break
+
+            except Exception as e:
+                print(f"\n❌ حدث خطأ: {str(e)}\n")
+
+
+
+
+if __name__ == "__main__":
+    MAX_OLLAMA_RETRIES = 3
+    ollama_connected = False
+    for attempt in range(MAX_OLLAMA_RETRIES):
+        print(f"Attempt {attempt + 1}/{MAX_OLLAMA_RETRIES} to connect to Ollama...")
+        # Re-run ollama server start and model pull just in case it died
+        # We need to make sure start_ollama_server and pull_ollama_model functions are available in the scope
+        # For now, assuming they are imported or available. If not, this cell would need full setup.
+        # Given this is a Colab notebook, the functions are defined in zfmukFC-0cNl and would be in scope if executed.
+        start_ollama_server() # Ensure server is running
+        pull_ollama_model(OLLAMA_MODEL_NAME) # Ensure model is loaded
+
+        brain_instance = ZICBrain() # Instantiate ZICBrain
+        if brain_instance.connect_to_model(): # Try to connect
+            ollama_connected = True
+            break
+        else:
+            print("Ollama connection failed. Retrying in 5 seconds...")
+            time.sleep(5)
+
+    if ollama_connected:
+        try:
+            brain_instance.run()
+        except KeyboardInterrupt:
+           speak("\n\n👋 تم إغلاق ZIC")
+        except Exception as e:
+            speak(f"\n❌ خطأ فادح: {str(e)}")
+    else:
+        speak("❌ فشل الاتصال بخدمة Ollama بعد عدة محاولات. يرجى التحقق من إعدادات Ollama يدويًا.")
+
+
+
+
+
